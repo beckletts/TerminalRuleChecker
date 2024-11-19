@@ -21,6 +21,7 @@ const colors = {
   },
 };
 
+// Styles
 const styles = {
   container: {
     maxWidth: "800px",
@@ -136,24 +137,32 @@ const EligibilityChecker = () => {
       };
     }
 
-    const completedComponents = Object.entries(formData.components).filter(
-      ([_, comp]) => comp.completed
+    // Check if any components are completed
+    const hasCompletedComponents = Object.values(formData.components).some(
+      (comp) => comp.completed
     );
-
-    if (completedComponents.length === 0) {
+    if (!hasCompletedComponents) {
       return {
         isEligible: false,
         message: "No components have been marked as completed",
       };
     }
-    // Check resit limits
-    for (const [id, comp] of Object.entries(formData.components)) {
-      if (comp.resit && !comp.resitDate) {
-        return {
-          isEligible: false,
-          message: `Please provide resit date for Component ${id}`,
-        };
-      }
+
+    // Check dates for completed components and resits
+    const completedComponents = Object.entries(formData.components).filter(
+      ([_, comp]) => comp.completed
+    );
+    const missingDates = completedComponents.some(([_, comp]) => {
+      if (!comp.date) return true;
+      if (comp.resit && !comp.resitDate) return true;
+      return false;
+    });
+
+    if (missingDates) {
+      return {
+        isEligible: false,
+        message: "Please provide all required dates",
+      };
     }
 
     // Check terminal rule including resits
@@ -174,17 +183,39 @@ const EligibilityChecker = () => {
         return {
           isEligible: false,
           message:
-            "Internal components (including resits) must be completed before or in the same series as the external assessment",
+            "Internal components must be completed before or in the same series as the external assessment",
         };
       }
 
-      return {
-        isEligible: true,
-        message: "All requirements have been met"
-      };
-    };
+      // Check if internal resit requires external resit
+      const hasLateInternalResit = [1, 2].some((id) => {
+        const comp = formData.components[id];
+        if (comp.resit) {
+          const resitDate = new Date(comp.resitDate);
+          const originalExternalDate = new Date(formData.components[3].date);
+          return (
+            resitDate > originalExternalDate && !formData.components[3].resit
+          );
+        }
+        return false;
+      });
 
-    const eligibilityStatus = checkEligibility();
+      if (hasLateInternalResit) {
+        return {
+          isEligible: false,
+          message:
+            "External assessment must be resit when internal components are retaken after the initial external assessment",
+        };
+      }
+    }
+
+    return {
+      isEligible: true,
+      message: "All requirements have been met",
+    };
+  };
+
+  const eligibilityStatus = checkEligibility();
 
   return (
     <div style={styles.container}>
@@ -254,8 +285,14 @@ const EligibilityChecker = () => {
 
         {[1, 2, 3].map((componentId) => (
           <div key={componentId} style={styles.componentCard}>
-            <h3 style={{ margin: "0 0 15px 0", color: colors.accent.midnightBlue }}>
-              Component {componentId} {componentId === 3 ? "(External)" : "(Internal)"}
+            <h3
+              style={{
+                margin: "0 0 15px 0",
+                color: colors.accent.midnightBlue,
+              }}
+            >
+              Component {componentId}{" "}
+              {componentId === 3 ? "(External)" : "(Internal)"}
             </h3>
 
             <div style={{ marginBottom: "10px" }}>
@@ -263,23 +300,29 @@ const EligibilityChecker = () => {
                 <input
                   type="checkbox"
                   checked={formData.components[componentId].completed}
-                  onChange={(e) => handleComponentChange(componentId, "completed", e.target.checked)}
+                  onChange={(e) =>
+                    handleComponentChange(
+                      componentId,
+                      "completed",
+                      e.target.checked
+                    )
+                  }
                   style={styles.checkbox}
                 />
                 Completed
               </label>
             </div>
 
-
-
-           {formData.components[componentId].completed && (
+            {formData.components[componentId].completed && (
               <>
                 <div>
                   <label style={styles.label}>Initial Completion Date</label>
                   <input
                     type="date"
                     value={formData.components[componentId].date}
-                    onChange={(e) => handleComponentChange(componentId, "date", e.target.value)}
+                    onChange={(e) =>
+                      handleComponentChange(componentId, "date", e.target.value)
+                    }
                     style={styles.dateInput}
                   />
                 </div>
@@ -289,7 +332,13 @@ const EligibilityChecker = () => {
                     <input
                       type="checkbox"
                       checked={formData.components[componentId].resit}
-                      onChange={(e) => handleComponentChange(componentId, "resit", e.target.checked)}
+                      onChange={(e) =>
+                        handleComponentChange(
+                          componentId,
+                          "resit",
+                          e.target.checked
+                        )
+                      }
                       style={styles.checkbox}
                     />
                     Resit Required
@@ -302,7 +351,13 @@ const EligibilityChecker = () => {
                     <input
                       type="date"
                       value={formData.components[componentId].resitDate}
-                      onChange={(e) => handleComponentChange(componentId, "resitDate", e.target.value)}
+                      onChange={(e) =>
+                        handleComponentChange(
+                          componentId,
+                          "resitDate",
+                          e.target.value
+                        )
+                      }
                       style={styles.dateInput}
                     />
                   </div>
@@ -312,10 +367,17 @@ const EligibilityChecker = () => {
           </div>
         ))}
 
-        {/* Show only the relevant status message */}
-        <div style={styles.statusAlert(eligibilityStatus.isEligible ? "success" : "error")}>
-          <h3 style={{ margin: "0 0 5px 0", color: colors.accent.midnightBlue }}>
-            {eligibilityStatus.isEligible ? "Eligible for Certification" : "Not Eligible"}
+        <div
+          style={styles.statusAlert(
+            eligibilityStatus.isEligible ? "success" : "error"
+          )}
+        >
+          <h3
+            style={{ margin: "0 0 5px 0", color: colors.accent.midnightBlue }}
+          >
+            {eligibilityStatus.isEligible
+              ? "Eligible for Certification"
+              : "Not Eligible"}
           </h3>
           <p style={{ margin: 0, color: colors.neutral.graphite }}>
             {eligibilityStatus.message}
@@ -325,6 +387,5 @@ const EligibilityChecker = () => {
     </div>
   );
 };
-
 
 export default EligibilityChecker;
