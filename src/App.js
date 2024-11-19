@@ -128,6 +128,68 @@ const EligibilityChecker = () => {
     }));
   };
 
+  const checkEligibility = () => {
+    // Check if all required fields are filled
+    if (!formData.currentSeries || !formData.currentYear) {
+      return {
+        isEligible: false,
+        message: "Please select both series and year",
+      };
+    }
+
+    // Check if any components are completed
+    const hasCompletedComponents = Object.values(formData.components).some(
+      (comp) => comp.completed
+    );
+    if (!hasCompletedComponents) {
+      return {
+        isEligible: false,
+        message: "No components have been marked as completed",
+      };
+    }
+
+    // Check dates for completed components
+    const completedComponents = Object.entries(formData.components).filter(
+      ([_, comp]) => comp.completed
+    );
+    const allDatesProvided = completedComponents.every(
+      ([_, comp]) => comp.date
+    );
+
+    if (!allDatesProvided) {
+      return {
+        isEligible: false,
+        message: "Please provide dates for all completed components",
+      };
+    }
+
+    // Check terminal rule
+    if (formData.components[3].completed) {
+      // If external assessment is completed
+      const externalDate = new Date(formData.components[3].date);
+      const internalDates = [1, 2]
+        .filter((id) => formData.components[id].completed)
+        .map((id) => new Date(formData.components[id].date));
+
+      const anyInternalAfterExternal = internalDates.some(
+        (date) => date > externalDate
+      );
+
+      if (anyInternalAfterExternal) {
+        return {
+          isEligible: false,
+          message:
+            "Internal components must be completed before or in the same series as the external assessment",
+        };
+      }
+    }
+
+    return {
+      isEligible: true,
+      message: "All requirements have been met",
+    };
+  };
+
   return (
     <div style={styles.container}>
       <div style={styles.header}>
