@@ -107,12 +107,15 @@ const EligibilityChecker = () => {
     },
   });
 
+  const [eligibilityStatus, setEligibilityStatus] = useState(null);
+
   const handleChange = (e) => {
     const { name, value } = e.target;
     setFormData((prev) => ({
       ...prev,
       [name]: value,
     }));
+    validateEligibility();
   };
 
   const handleComponentChange = (componentId, field, value) => {
@@ -126,10 +129,16 @@ const EligibilityChecker = () => {
         },
       },
     }));
+    validateEligibility();
+  };
+
+  const validateEligibility = () => {
+    const result = checkEligibility();
+    setEligibilityStatus(result);
   };
 
   const checkEligibility = () => {
-    // Check if all required fields are filled
+    // Basic validation
     if (!formData.currentSeries || !formData.currentYear) {
       return {
         isEligible: false,
@@ -137,11 +146,11 @@ const EligibilityChecker = () => {
       };
     }
 
-    // Check if any components are completed
-    const hasCompletedComponents = Object.values(formData.components).some(
-      (comp) => comp.completed
+    const completedComponents = Object.entries(formData.components).filter(
+      ([_, comp]) => comp.completed
     );
-    if (!hasCompletedComponents) {
+
+    if (completedComponents.length === 0) {
       return {
         isEligible: false,
         message: "No components have been marked as completed",
@@ -149,31 +158,26 @@ const EligibilityChecker = () => {
     }
 
     // Check dates for completed components
-    const completedComponents = Object.entries(formData.components).filter(
-      ([_, comp]) => comp.completed
-    );
-    const allDatesProvided = completedComponents.every(
-      ([_, comp]) => comp.date
-    );
-
-    if (!allDatesProvided) {
+    const missingDates = completedComponents.some(([_, comp]) => !comp.date);
+    if (missingDates) {
       return {
         isEligible: false,
         message: "Please provide dates for all completed components",
       };
     }
 
-    // Check terminal rule
+    // Terminal rule check
     if (formData.components[3].completed) {
-      // If external assessment is completed
       const externalDate = new Date(formData.components[3].date);
-      const internalDates = [1, 2]
-        .filter((id) => formData.components[id].completed)
-        .map((id) => new Date(formData.components[id].date));
 
-      const anyInternalAfterExternal = internalDates.some(
-        (date) => date > externalDate
+      const completedInternals = [1, 2].filter(
+        (id) => formData.components[id].completed
       );
+
+      const anyInternalAfterExternal = completedInternals.some((id) => {
+        const internalDate = new Date(formData.components[id].date);
+        return internalDate > externalDate;
+      });
 
       if (anyInternalAfterExternal) {
         return {
@@ -302,28 +306,24 @@ const EligibilityChecker = () => {
           </div>
         ))}
 
-        <div style={styles.statusAlert("success")}>
-          <h3
-            style={{ margin: "0 0 5px 0", color: colors.accent.midnightBlue }}
+        {eligibilityStatus && (
+          <div
+            style={styles.statusAlert(
+              eligibilityStatus.isEligible ? "success" : "error"
+            )}
           >
-            Eligible for Certification
-          </h3>
-          <p style={{ margin: 0, color: colors.neutral.graphite }}>
-            All requirements have been met.
-          </p>
-        </div>
-
-        <div style={styles.statusAlert("error")}>
-          <h3
-            style={{ margin: "0 0 5px 0", color: colors.accent.midnightBlue }}
-          >
-            Not Eligible
-          </h3>
-          <p style={{ margin: 0, color: colors.neutral.graphite }}>
-            Internal components must be completed before or in the same series
-            as the external assessment.
-          </p>
-        </div>
+            <h3
+              style={{ margin: "0 0 5px 0", color: colors.accent.midnightBlue }}
+            >
+              {eligibilityStatus.isEligible
+                ? "Eligible for Certification"
+                : "Not Eligible"}
+            </h3>
+            <p style={{ margin: 0, color: colors.neutral.graphite }}>
+              {eligibilityStatus.message}
+            </p>
+          </div>
+        )}
       </div>
     </div>
   );
