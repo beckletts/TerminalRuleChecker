@@ -21,7 +21,6 @@ const colors = {
   },
 };
 
-// Styles
 const styles = {
   container: {
     maxWidth: "800px",
@@ -50,38 +49,35 @@ const styles = {
     marginBottom: "20px",
     borderRadius: "4px",
   },
-  formGroup: {
-    marginBottom: "15px",
+  matrix: {
+    display: "grid",
+    gridTemplateColumns: "200px 1fr",
+    gap: "10px",
+    marginTop: "20px",
   },
-  label: {
-    display: "block",
-    color: colors.accent.midnightBlue,
-    marginBottom: "5px",
+  sessionCell: {
+    padding: "10px",
+    backgroundColor: colors.neutral.mist,
+    borderRadius: "4px",
     fontWeight: "500",
   },
-  select: {
+  componentCell: {
+    padding: "10px",
+    border: `1px solid ${colors.neutral.mist}`,
+    borderRadius: "4px",
+  },
+  dropdown: {
     width: "100%",
     padding: "8px",
+    marginBottom: "5px",
     borderRadius: "4px",
     border: `1px solid ${colors.neutral.mist}`,
-    marginBottom: "10px",
   },
-  componentCard: {
-    backgroundColor: colors.neutral.white,
-    border: `1px solid ${colors.neutral.mist}`,
-    borderRadius: "4px",
-    padding: "15px",
-    marginBottom: "15px",
-  },
-  checkbox: {
-    marginRight: "8px",
-  },
-  dateInput: {
-    width: "100%",
-    padding: "8px",
+  summaryCard: {
+    padding: "10px",
+    backgroundColor: "white",
     borderRadius: "4px",
     border: `1px solid ${colors.neutral.mist}`,
-    marginTop: "5px",
   },
   statusAlert: (type) => ({
     padding: "15px",
@@ -98,124 +94,96 @@ const styles = {
 };
 
 const EligibilityChecker = () => {
-  const [formData, setFormData] = useState({
-    currentSeries: "",
-    currentYear: "",
-    components: {
-      1: { completed: false, date: "", resit: false, resitDate: "" },
-      2: { completed: false, date: "", resit: false, resitDate: "" },
-      3: { completed: false, date: "", resit: false, resitDate: "" },
-    },
+  const sessions = ["Dec/Jan Y1", "May/June Y1", "Dec/Jan Y2", "May/June Y2"];
+
+  const [selectedComponents, setSelectedComponents] = useState({
+    "Dec/Jan Y1": { component: "", resit: "" },
+    "May/June Y1": { component: "", resit: "" },
+    "Dec/Jan Y2": { component: "", resit: "" },
+    "May/June Y2": { component: "", resit: "" },
   });
 
-  const handleChange = (e) => {
-    const { name, value } = e.target;
-    setFormData((prev) => ({
+  const handleComponentChange = (session, component) => {
+    setSelectedComponents((prev) => ({
       ...prev,
-      [name]: value,
+      [session]: { ...prev[session], component },
     }));
+    validateEligibility();
   };
 
-  const handleComponentChange = (componentId, field, value) => {
-    setFormData((prev) => ({
+  const handleResitChange = (session, component) => {
+    setSelectedComponents((prev) => ({
       ...prev,
-      components: {
-        ...prev.components,
-        [componentId]: {
-          ...prev.components[componentId],
-          [field]: value,
-        },
-      },
+      [session]: { ...prev[session], resit: component },
     }));
+    validateEligibility();
   };
 
-  const checkEligibility = () => {
-    if (!formData.currentSeries || !formData.currentYear) {
-      return {
-        isEligible: false,
-        message: "Please select both series and year",
-      };
-    }
+  const [eligibilityStatus, setEligibilityStatus] = useState({
+    isEligible: false,
+    message: "Please select components",
+  });
 
-    // Check if any components are completed
-    const hasCompletedComponents = Object.values(formData.components).some(
-      (comp) => comp.completed
+  const validateEligibility = () => {
+    // Get all selected components and resits
+    const selections = Object.entries(selectedComponents).filter(
+      ([_, value]) => value.component || value.resit
     );
-    if (!hasCompletedComponents) {
-      return {
+
+    // Check if any components are selected
+    if (selections.length === 0) {
+      setEligibilityStatus({
         isEligible: false,
-        message: "No components have been marked as completed",
-      };
-    }
-
-    // Check dates for completed components and resits
-    const completedComponents = Object.entries(formData.components).filter(
-      ([_, comp]) => comp.completed
-    );
-    const missingDates = completedComponents.some(([_, comp]) => {
-      if (!comp.date) return true;
-      if (comp.resit && !comp.resitDate) return true;
-      return false;
-    });
-
-    if (missingDates) {
-      return {
-        isEligible: false,
-        message: "Please provide all required dates",
-      };
-    }
-
-    // Check terminal rule including resits
-    if (formData.components[3].completed) {
-      const externalDate = new Date(
-        formData.components[3].resit
-          ? formData.components[3].resitDate
-          : formData.components[3].date
-      );
-      const internalDates = [1, 2]
-        .filter((id) => formData.components[id].completed)
-        .map((id) => {
-          const comp = formData.components[id];
-          return new Date(comp.resit ? comp.resitDate : comp.date);
-        });
-
-      if (internalDates.some((date) => date > externalDate)) {
-        return {
-          isEligible: false,
-          message:
-            "Internal components must be completed before or in the same series as the external assessment",
-        };
-      }
-
-      // Check if internal resit requires external resit
-      const hasLateInternalResit = [1, 2].some((id) => {
-        const comp = formData.components[id];
-        if (comp.resit) {
-          const resitDate = new Date(comp.resitDate);
-          const originalExternalDate = new Date(formData.components[3].date);
-          return (
-            resitDate > originalExternalDate && !formData.components[3].resit
-          );
-        }
-        return false;
+        message: "Please select at least one component",
       });
-
-      if (hasLateInternalResit) {
-        return {
-          isEligible: false,
-          message:
-            "External assessment must be resit when internal components are retaken after the initial external assessment",
-        };
-      }
+      return;
     }
 
-    return {
+    // Find external assessment (Component 3)
+    const externalAssessment = Object.entries(selectedComponents).find(
+      ([_, value]) =>
+        value.component === "comp3" || value.resit === "comp3_resit"
+    );
+
+    if (!externalAssessment) {
+      setEligibilityStatus({
+        isEligible: false,
+        message: "External assessment (Component 3) must be completed",
+      });
+      return;
+    }
+
+    // Check terminal rule
+    const [externalSession, _] = externalAssessment;
+    const externalIndex = sessions.indexOf(externalSession);
+
+    const hasLateInternal = Object.entries(selectedComponents).some(
+      ([session, value]) => {
+        const sessionIndex = sessions.indexOf(session);
+        return (
+          sessionIndex > externalIndex &&
+          (value.component?.startsWith("comp1") ||
+            value.component?.startsWith("comp2") ||
+            value.resit?.startsWith("comp1") ||
+            value.resit?.startsWith("comp2"))
+        );
+      }
+    );
+
+    if (hasLateInternal) {
+      setEligibilityStatus({
+        isEligible: false,
+        message:
+          "Internal components must be completed before or in the same series as the external assessment",
+      });
+      return;
+    }
+
+    setEligibilityStatus({
       isEligible: true,
       message: "All requirements have been met",
-    };
+    });
   };
-
-  const eligibilityStatus = checkEligibility();
 
   return (
     <div style={styles.container}>
@@ -225,7 +193,7 @@ const EligibilityChecker = () => {
 
       <div style={styles.alert}>
         <h3 style={{ margin: "0 0 10px 0", color: colors.accent.midnightBlue }}>
-          Key Rules
+          Rules & Instructions
         </h3>
         <ul
           style={{
@@ -247,126 +215,95 @@ const EligibilityChecker = () => {
       </div>
 
       <div style={styles.card}>
+        <div style={styles.matrix}>
+          {/* Header row */}
+          <div style={{ fontWeight: "bold" }}>Session</div>
+          <div style={{ fontWeight: "bold" }}>Component</div>
+
+          {/* Session rows */}
+          {sessions.map((session) => (
+            <React.Fragment key={session}>
+              <div style={styles.sessionCell}>{session}</div>
+              <div style={styles.componentCell}>
+                <select
+                  style={styles.dropdown}
+                  value={selectedComponents[session].component}
+                  onChange={(e) =>
+                    handleComponentChange(session, e.target.value)
+                  }
+                >
+                  <option value="">Select Component</option>
+                  <option value="comp1">Component 1 (Internal)</option>
+                  <option value="comp2">Component 2 (Internal)</option>
+                  <option value="comp3">Component 3 (External)</option>
+                </select>
+
+                {selectedComponents[session].component && (
+                  <select
+                    style={{ ...styles.dropdown, marginTop: "5px" }}
+                    value={selectedComponents[session].resit}
+                    onChange={(e) => handleResitChange(session, e.target.value)}
+                  >
+                    <option value="">Add Resit (Optional)</option>
+                    <option value="comp1_resit">Component 1 Resit</option>
+                    <option value="comp2_resit">Component 2 Resit</option>
+                    <option value="comp3_resit">Component 3 Resit</option>
+                  </select>
+                )}
+              </div>
+            </React.Fragment>
+          ))}
+        </div>
+
+        {/* Component Summary */}
         <div
           style={{
-            display: "grid",
-            gridTemplateColumns: "1fr 1fr",
-            gap: "20px",
+            marginTop: "20px",
+            padding: "15px",
+            backgroundColor: colors.neutral.mist,
+            borderRadius: "4px",
           }}
         >
-          <div style={styles.formGroup}>
-            <label style={styles.label}>Current Series</label>
-            <select
-              name="currentSeries"
-              value={formData.currentSeries}
-              onChange={handleChange}
-              style={styles.select}
-            >
-              <option value="">Select Series</option>
-              <option value="decjan">December/January</option>
-              <option value="mayjun">May/June</option>
-            </select>
-          </div>
+          <h3
+            style={{ margin: "0 0 10px 0", color: colors.accent.midnightBlue }}
+          >
+            Component Status
+          </h3>
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(3, 1fr)",
+              gap: "10px",
+            }}
+          >
+            {["Component 1", "Component 2", "Component 3"].map(
+              (comp, index) => {
+                const componentId = `comp${index + 1}`;
+                const completedSession = Object.entries(
+                  selectedComponents
+                ).find(([_, value]) => value.component === componentId);
+                const resitSession = Object.entries(selectedComponents).find(
+                  ([_, value]) => value.resit === `${componentId}_resit`
+                );
 
-          <div style={styles.formGroup}>
-            <label style={styles.label}>Year</label>
-            <select
-              name="currentYear"
-              value={formData.currentYear}
-              onChange={handleChange}
-              style={styles.select}
-            >
-              <option value="">Select Year</option>
-              <option value="year1">Year 1</option>
-              <option value="year2">Year 2</option>
-            </select>
+                return (
+                  <div key={comp} style={styles.summaryCard}>
+                    <div style={{ fontWeight: "bold", marginBottom: "5px" }}>
+                      {comp}
+                    </div>
+                    <div>
+                      Initial:{" "}
+                      {completedSession ? completedSession[0] : "Not completed"}
+                    </div>
+                    <div>Resit: {resitSession ? resitSession[0] : "None"}</div>
+                  </div>
+                );
+              }
+            )}
           </div>
         </div>
 
-        {[1, 2, 3].map((componentId) => (
-          <div key={componentId} style={styles.componentCard}>
-            <h3
-              style={{
-                margin: "0 0 15px 0",
-                color: colors.accent.midnightBlue,
-              }}
-            >
-              Component {componentId}{" "}
-              {componentId === 3 ? "(External)" : "(Internal)"}
-            </h3>
-
-            <div style={{ marginBottom: "10px" }}>
-              <label style={{ display: "flex", alignItems: "center" }}>
-                <input
-                  type="checkbox"
-                  checked={formData.components[componentId].completed}
-                  onChange={(e) =>
-                    handleComponentChange(
-                      componentId,
-                      "completed",
-                      e.target.checked
-                    )
-                  }
-                  style={styles.checkbox}
-                />
-                Completed
-              </label>
-            </div>
-
-            {formData.components[componentId].completed && (
-              <>
-                <div>
-                  <label style={styles.label}>Initial Completion Date</label>
-                  <input
-                    type="date"
-                    value={formData.components[componentId].date}
-                    onChange={(e) =>
-                      handleComponentChange(componentId, "date", e.target.value)
-                    }
-                    style={styles.dateInput}
-                  />
-                </div>
-
-                <div style={{ marginTop: "10px" }}>
-                  <label style={{ display: "flex", alignItems: "center" }}>
-                    <input
-                      type="checkbox"
-                      checked={formData.components[componentId].resit}
-                      onChange={(e) =>
-                        handleComponentChange(
-                          componentId,
-                          "resit",
-                          e.target.checked
-                        )
-                      }
-                      style={styles.checkbox}
-                    />
-                    Resit Required
-                  </label>
-                </div>
-
-                {formData.components[componentId].resit && (
-                  <div style={{ marginTop: "10px" }}>
-                    <label style={styles.label}>Resit Date</label>
-                    <input
-                      type="date"
-                      value={formData.components[componentId].resitDate}
-                      onChange={(e) =>
-                        handleComponentChange(
-                          componentId,
-                          "resitDate",
-                          e.target.value
-                        )
-                      }
-                      style={styles.dateInput}
-                    />
-                  </div>
-                )}
-              </>
-            )}
-          </div>
-        ))}
-
+        {/* Status message */}
         <div
           style={styles.statusAlert(
             eligibilityStatus.isEligible ? "success" : "error"
