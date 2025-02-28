@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 
 // Color palette
 const colors = {
@@ -91,6 +91,16 @@ const styles = {
     marginTop: "20px",
     borderRadius: "4px",
   }),
+  button: {
+    backgroundColor: colors.accent.midnightBlue,
+    color: colors.neutral.white,
+    padding: "10px 15px",
+    border: "none",
+    borderRadius: "4px",
+    cursor: "pointer",
+    marginTop: "15px",
+    fontWeight: "bold",
+  },
 };
 
 const EligibilityChecker = () => {
@@ -103,12 +113,17 @@ const EligibilityChecker = () => {
     "May/June Y2": { component: "", resit: "" },
   });
 
+  const [eligibilityStatus, setEligibilityStatus] = useState({
+    isEligible: false,
+    message: "Please select components",
+    details: [],
+  });
+
   const handleComponentChange = (session, component) => {
     setSelectedComponents((prev) => ({
       ...prev,
       [session]: { ...prev[session], component },
     }));
-    validateEligibility();
   };
 
   const handleResitChange = (session, component) => {
@@ -116,72 +131,159 @@ const EligibilityChecker = () => {
       ...prev,
       [session]: { ...prev[session], resit: component },
     }));
-    validateEligibility();
   };
 
-  const [eligibilityStatus, setEligibilityStatus] = useState({
-    isEligible: false,
-    message: "Please select components",
-  });
+  // This checks if a component or resit is an internal component
+  const isInternalComponent = (componentValue) => {
+    return (
+      componentValue?.startsWith("comp1") || componentValue?.startsWith("comp2")
+    );
+  };
+
+  // This checks if a component or resit is an external component
+  const isExternalComponent = (componentValue) => {
+    return componentValue?.startsWith("comp3");
+  };
 
   const validateEligibility = () => {
-    // Get all selected components and resits
-    const selections = Object.entries(selectedComponents).filter(
+    // Reset status
+    const details = [];
+    let isEligible = true;
+
+    // 1. Get all selected components and resits
+    const allSelections = Object.entries(selectedComponents).filter(
       ([_, value]) => value.component || value.resit
     );
 
     // Check if any components are selected
-    if (selections.length === 0) {
+    if (allSelections.length === 0) {
       setEligibilityStatus({
         isEligible: false,
         message: "Please select at least one component",
+        details: [],
       });
       return;
     }
 
-    // Find external assessment (Component 3)
-    const externalAssessment = Object.entries(selectedComponents).find(
-      ([_, value]) =>
-        value.component === "comp3" || value.resit === "comp3_resit"
-    );
+    // 2. Find the latest external assessment (Component 3)
+    const externalAssessments = Object.entries(selectedComponents)
+      .filter(
+        ([_, value]) =>
+          value.component === "comp3" || value.resit === "comp3_resit"
+      )
+      .sort((a, b) => sessions.indexOf(b[0]) - sessions.indexOf(a[0]));
 
-    if (!externalAssessment) {
+    if (externalAssessments.length === 0) {
       setEligibilityStatus({
         isEligible: false,
         message: "External assessment (Component 3) must be completed",
+        details: ["External assessment is required for certification"],
       });
       return;
     }
 
-    // Check terminal rule
-    const [externalSession, _] = externalAssessment;
-    const externalIndex = sessions.indexOf(externalSession);
+    // Get the final external assessment
+    const [terminalExternalSession] = externalAssessments[0];
+    const terminalExternalIndex = sessions.indexOf(terminalExternalSession);
 
-    const hasLateInternal = Object.entries(selectedComponents).some(
-      ([session, value]) => {
+    // 3. Check for internal components completed after the terminal external
+    const lateInternalComponents = Object.entries(selectedComponents)
+      .filter(([session, value]) => {
         const sessionIndex = sessions.indexOf(session);
         return (
-          sessionIndex > externalIndex &&
-          (value.component?.startsWith("comp1") ||
-            value.component?.startsWith("comp2") ||
-            value.resit?.startsWith("comp1") ||
-            value.resit?.startsWith("comp2"))
+          sessionIndex > terminalExternalIndex &&
+          (isInternalComponent(value.component) ||
+            isInternalComponent(value.resit))
+        );
+      })
+      .map(([session]) => session);
+
+    // 4. For any internal component after the terminal external, check if there's a corresponding external resit
+    if (lateInternalComponents.length > 0) {
+      // Find the latest of these late internal components
+      const latestInternalIndex = Math.max(
+        ...lateInternalComponents.map((session) => sessions.indexOf(session))
+      );
+      const latestInternalSession = sessions[latestInternalIndex];
+
+      // Check if there's an external assessment in the same series as the latest internal
+      const hasExternalInSameSeries = 
+        isExternalComponent(selectedComponents[latestInternalSession].component) ||
+        isExternalComponent(selectedComponents[latestInternalSession].resit);
+
+      // Check if there's an external assessment after the latest internal
+      const hasLaterExternal = Object.entries(selectedComponents).some(
+        ([session, value]) => {
+          const sessionIndex = sessions.indexOf(session);
+          return (
+            sessionIndex > latestInternalIndex &&
+            (isExternalComponent(value.component) ||
+              isExternalComponent(value.resit))
+          );
+        }
+      );
+
+      if (!hasExternalInSameSeries && !hasLaterExternal) {
+        isEligible = false;
+        details.push(
+          `Internal component(s) in ${lateInternalComponents.join(
+            ", "
+          )} require an external resit in the same or later series`
         );
       }
-    );
-
-    if (hasLateInternal) {
-      setEligibilityStatus({
-        isEligible: false,
-        message:
-          "Internal components must be completed before or in the same series as the external assessment",
-      });
-      return;
     }
 
+    // 5. Check for duplicate components (excluding resits)
+    const componentCounts = {};
+    Object.values(selectedComponents).forEach((value) => {
+      if (value.component) {
+        componentCounts[value.component] = (componentCounts[value.component] || 0) + 1;
+      }
+    });
+
+    // 6. Check for too many resits
+    const resitCounts = {
+      comp1_resit: 0,
+      comp2_resit: 0,
+      comp3_resit: 0,
+    };
+
+    Object.values(selectedComponents).forEach((value) => {
+      if (value.resit) {
+        resitCounts[value.resit] = (resitCounts[value.resit] || 0) + 1;
+      }
+    });
+
+    Object.entries(resitCounts).forEach(([resit, count]) => {
+      if (count > 1) {
+        isEligible = false;
+        details.push(`Only one resit allowed for ${resit.split("_")[0]}`);
+      }
+    });
+
+    // 7. Check if all components (1, 2, and 3) are present
+    const hasComp1 = Object.values(selectedComponents).some(
+      (value) => value.component === "comp1" || value.resit === "comp1_resit"
+    );
+    const hasComp2 = Object.values(selectedComponents).some(
+      (value) => value.component === "comp2" || value.resit === "comp2_resit"
+    );
+    const hasComp3 = Object.values(selectedComponents).some(
+      (value) => value.component === "comp3" || value.resit === "comp3_resit"
+    );
+
+    if (!hasComp1 || !hasComp2 || !hasComp3) {
+      isEligible = false;
+      details.push("All three components must be completed");
+    }
+
+    // Set final status
     setEligibilityStatus({
-      isEligible: true,
-      message: "All requirements have been met",
+      isEligible,
+      message: isEligible
+        ? "All requirements have been met"
+        : "Some requirements have not been met",
+      details,
     });
   };
 
@@ -193,7 +295,7 @@ const EligibilityChecker = () => {
 
       <div style={styles.alert}>
         <h3 style={{ margin: "0 0 10px 0", color: colors.accent.midnightBlue }}>
-          Rules & Instructions
+          Terminal Rule & Instructions
         </h3>
         <ul
           style={{
@@ -203,14 +305,19 @@ const EligibilityChecker = () => {
           }}
         >
           <li>
+            <strong>Terminal Rule:</strong> Learners must take the external assessment at the 
+            end of their qualification (the series in which they certificate)
+          </li>
+          <li>
             Internal components must be completed before or in the same series
             as the external assessment
           </li>
+          <li>
+            If a learner retakes an internal component after the terminal external,
+            they must also resit the external assessment
+          </li>
           <li>One retake allowed per internal component</li>
           <li>One external assessment resit allowed</li>
-          <li>
-            Internal resits after external assessment require an external resit
-          </li>
         </ul>
       </div>
 
@@ -238,18 +345,16 @@ const EligibilityChecker = () => {
                   <option value="comp3">Component 3 (External)</option>
                 </select>
 
-                {selectedComponents[session].component && (
-                  <select
-                    style={{ ...styles.dropdown, marginTop: "5px" }}
-                    value={selectedComponents[session].resit}
-                    onChange={(e) => handleResitChange(session, e.target.value)}
-                  >
-                    <option value="">Add Resit (Optional)</option>
-                    <option value="comp1_resit">Component 1 Resit</option>
-                    <option value="comp2_resit">Component 2 Resit</option>
-                    <option value="comp3_resit">Component 3 Resit</option>
-                  </select>
-                )}
+                <select
+                  style={{ ...styles.dropdown, marginTop: "5px" }}
+                  value={selectedComponents[session].resit}
+                  onChange={(e) => handleResitChange(session, e.target.value)}
+                >
+                  <option value="">Add Resit (Optional)</option>
+                  <option value="comp1_resit">Component 1 Resit</option>
+                  <option value="comp2_resit">Component 2 Resit</option>
+                  <option value="comp3_resit">Component 3 Resit</option>
+                </select>
               </div>
             </React.Fragment>
           ))}
@@ -289,7 +394,7 @@ const EligibilityChecker = () => {
                 return (
                   <div key={comp} style={styles.summaryCard}>
                     <div style={{ fontWeight: "bold", marginBottom: "5px" }}>
-                      {comp}
+                      {comp} {index === 2 ? "(External)" : "(Internal)"}
                     </div>
                     <div>
                       Initial:{" "}
@@ -303,23 +408,44 @@ const EligibilityChecker = () => {
           </div>
         </div>
 
+        <button onClick={validateEligibility} style={styles.button}>
+          Check Eligibility
+        </button>
+
         {/* Status message */}
-        <div
-          style={styles.statusAlert(
-            eligibilityStatus.isEligible ? "success" : "error"
-          )}
-        >
-          <h3
-            style={{ margin: "0 0 5px 0", color: colors.accent.midnightBlue }}
+        {(eligibilityStatus.message !== "Please select components" || eligibilityStatus.details.length > 0) && (
+          <div
+            style={styles.statusAlert(
+              eligibilityStatus.isEligible ? "success" : "error"
+            )}
           >
-            {eligibilityStatus.isEligible
-              ? "Eligible for Certification"
-              : "Not Eligible"}
-          </h3>
-          <p style={{ margin: 0, color: colors.neutral.graphite }}>
-            {eligibilityStatus.message}
-          </p>
-        </div>
+            <h3
+              style={{ margin: "0 0 5px 0", color: colors.accent.midnightBlue }}
+            >
+              {eligibilityStatus.isEligible
+                ? "Eligible for Certification"
+                : "Not Eligible for Certification"}
+            </h3>
+            <p style={{ margin: "0 0 10px 0", color: colors.neutral.graphite }}>
+              {eligibilityStatus.message}
+            </p>
+            
+            {eligibilityStatus.details.length > 0 && (
+              <div>
+                <h4 style={{ margin: "10px 0 5px 0", color: colors.accent.midnightBlue }}>
+                  Details:
+                </h4>
+                <ul style={{ margin: 0, paddingLeft: "20px" }}>
+                  {eligibilityStatus.details.map((detail, index) => (
+                    <li key={index} style={{ color: colors.neutral.graphite }}>
+                      {detail}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
