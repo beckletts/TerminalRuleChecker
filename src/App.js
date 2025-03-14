@@ -101,16 +101,41 @@ const styles = {
     marginTop: "15px",
     fontWeight: "bold",
   },
+  addButton: {
+    backgroundColor: colors.accent.freshGreen, 
+    color: colors.neutral.white,
+    padding: "5px 10px",
+    border: "none",
+    borderRadius: "4px",
+    cursor: "pointer",
+    marginTop: "5px",
+    fontSize: "12px",
+  },
+  removeButton: {
+    backgroundColor: colors.accent.coralPink,
+    color: colors.neutral.white,
+    padding: "5px 10px",
+    border: "none",
+    borderRadius: "4px",
+    cursor: "pointer",
+    marginLeft: "5px",
+    fontSize: "12px",
+  },
+  resitContainer: {
+    marginTop: "5px",
+    display: "flex",
+    alignItems: "center",
+  },
 };
 
 const EligibilityChecker = () => {
   const sessions = ["Dec/Jan Y1", "May/June Y1", "Dec/Jan Y2", "May/June Y2"];
 
   const [selectedComponents, setSelectedComponents] = useState({
-    "Dec/Jan Y1": { component: "", resit: "" },
-    "May/June Y1": { component: "", resit: "" },
-    "Dec/Jan Y2": { component: "", resit: "" },
-    "May/June Y2": { component: "", resit: "" },
+    "Dec/Jan Y1": { component: "", resits: [] },
+    "May/June Y1": { component: "", resits: [] },
+    "Dec/Jan Y2": { component: "", resits: [] },
+    "May/June Y2": { component: "", resits: [] },
   });
 
   const [eligibilityStatus, setEligibilityStatus] = useState({
@@ -126,11 +151,44 @@ const EligibilityChecker = () => {
     }));
   };
 
-  const handleResitChange = (session, component) => {
+  const handleAddResit = (session) => {
     setSelectedComponents((prev) => ({
       ...prev,
-      [session]: { ...prev[session], resit: component },
+      [session]: {
+        ...prev[session],
+        resits: [...prev[session].resits, ""]
+      }
     }));
+  };
+
+  const handleResitChange = (session, index, value) => {
+    setSelectedComponents((prev) => {
+      const updatedResits = [...prev[session].resits];
+      updatedResits[index] = value;
+      
+      return {
+        ...prev,
+        [session]: {
+          ...prev[session],
+          resits: updatedResits
+        }
+      };
+    });
+  };
+
+  const handleRemoveResit = (session, index) => {
+    setSelectedComponents((prev) => {
+      const updatedResits = [...prev[session].resits];
+      updatedResits.splice(index, 1);
+      
+      return {
+        ...prev,
+        [session]: {
+          ...prev[session],
+          resits: updatedResits
+        }
+      };
+    });
   };
 
   // This checks if a component or resit is an internal component
@@ -152,7 +210,7 @@ const EligibilityChecker = () => {
 
     // 1. Get all selected components and resits
     const allSelections = Object.entries(selectedComponents).filter(
-      ([_, value]) => value.component || value.resit
+      ([_, value]) => value.component || value.resits.length > 0
     );
 
     // Check if any components are selected
@@ -168,8 +226,10 @@ const EligibilityChecker = () => {
     // 2. Find the latest external assessment (Component 3)
     const externalAssessments = Object.entries(selectedComponents)
       .filter(
-        ([_, value]) =>
-          value.component === "comp3" || value.resit === "comp3_resit"
+        ([_, value]) => {
+          return value.component === "comp3" || 
+                 value.resits.some(resit => resit === "comp3_resit");
+        }
       )
       .sort((a, b) => sessions.indexOf(b[0]) - sessions.indexOf(a[0]));
 
@@ -193,7 +253,7 @@ const EligibilityChecker = () => {
         return (
           sessionIndex > terminalExternalIndex &&
           (isInternalComponent(value.component) ||
-            isInternalComponent(value.resit))
+            value.resits.some(resit => isInternalComponent(resit)))
         );
       })
       .map(([session]) => session);
@@ -209,7 +269,9 @@ const EligibilityChecker = () => {
       // Check if there's an external assessment in the same series as the latest internal
       const hasExternalInSameSeries = 
         isExternalComponent(selectedComponents[latestInternalSession].component) ||
-        isExternalComponent(selectedComponents[latestInternalSession].resit);
+        selectedComponents[latestInternalSession].resits.some(resit => 
+          isExternalComponent(resit)
+        );
 
       // Check if there's an external assessment after the latest internal
       const hasLaterExternal = Object.entries(selectedComponents).some(
@@ -218,7 +280,7 @@ const EligibilityChecker = () => {
           return (
             sessionIndex > latestInternalIndex &&
             (isExternalComponent(value.component) ||
-              isExternalComponent(value.resit))
+              value.resits.some(resit => isExternalComponent(resit)))
           );
         }
       );
@@ -241,7 +303,8 @@ const EligibilityChecker = () => {
       }
     });
 
-    // 6. Check for too many resits
+    // 6. Check for too many resits per component
+    const resitMaxLimit = 3; // Set maximum number of resits allowed per component
     const resitCounts = {
       comp1_resit: 0,
       comp2_resit: 0,
@@ -249,27 +312,32 @@ const EligibilityChecker = () => {
     };
 
     Object.values(selectedComponents).forEach((value) => {
-      if (value.resit) {
-        resitCounts[value.resit] = (resitCounts[value.resit] || 0) + 1;
-      }
+      value.resits.forEach(resit => {
+        if (resit) {
+          resitCounts[resit] = (resitCounts[resit] || 0) + 1;
+        }
+      });
     });
 
     Object.entries(resitCounts).forEach(([resit, count]) => {
-      if (count > 1) {
+      if (count > resitMaxLimit) {
         isEligible = false;
-        details.push(`Only one resit allowed for ${resit.split("_")[0]}`);
+        details.push(`Maximum of ${resitMaxLimit} resits allowed for ${resit.split("_")[0]}`);
       }
     });
 
     // 7. Check if all components (1, 2, and 3) are present
     const hasComp1 = Object.values(selectedComponents).some(
-      (value) => value.component === "comp1" || value.resit === "comp1_resit"
+      (value) => value.component === "comp1" || 
+                 value.resits.some(resit => resit === "comp1_resit")
     );
     const hasComp2 = Object.values(selectedComponents).some(
-      (value) => value.component === "comp2" || value.resit === "comp2_resit"
+      (value) => value.component === "comp2" || 
+                 value.resits.some(resit => resit === "comp2_resit")
     );
     const hasComp3 = Object.values(selectedComponents).some(
-      (value) => value.component === "comp3" || value.resit === "comp3_resit"
+      (value) => value.component === "comp3" || 
+                 value.resits.some(resit => resit === "comp3_resit")
     );
 
     if (!hasComp1 || !hasComp2 || !hasComp3) {
@@ -285,6 +353,18 @@ const EligibilityChecker = () => {
         : "Some requirements have not been met",
       details,
     });
+  };
+
+  const getComponentResitCount = (componentId) => {
+    let count = 0;
+    Object.values(selectedComponents).forEach(session => {
+      session.resits.forEach(resit => {
+        if (resit === `${componentId}_resit`) {
+          count++;
+        }
+      });
+    });
+    return count;
   };
 
   return (
@@ -316,8 +396,8 @@ const EligibilityChecker = () => {
             If a learner retakes an internal component after the terminal external,
             they must also resit the external assessment
           </li>
-          <li>One retake allowed per internal component</li>
-          <li>One external assessment resit allowed</li>
+          <li>Multiple retakes allowed per component (up to 3)</li>
+          <li>Multiple external assessment resits allowed (up to 3)</li>
         </ul>
       </div>
 
@@ -345,16 +425,35 @@ const EligibilityChecker = () => {
                   <option value="comp3">Component 3 (External)</option>
                 </select>
 
-                <select
-                  style={{ ...styles.dropdown, marginTop: "5px" }}
-                  value={selectedComponents[session].resit}
-                  onChange={(e) => handleResitChange(session, e.target.value)}
+                {/* Resit dropdowns */}
+                {selectedComponents[session].resits.map((resit, index) => (
+                  <div key={index} style={styles.resitContainer}>
+                    <select
+                      style={{ ...styles.dropdown, marginBottom: 0, flex: 1 }}
+                      value={resit}
+                      onChange={(e) => handleResitChange(session, index, e.target.value)}
+                    >
+                      <option value="">Select Resit</option>
+                      <option value="comp1_resit">Component 1 Resit</option>
+                      <option value="comp2_resit">Component 2 Resit</option>
+                      <option value="comp3_resit">Component 3 Resit</option>
+                    </select>
+                    <button 
+                      style={styles.removeButton}
+                      onClick={() => handleRemoveResit(session, index)}
+                    >
+                      Remove
+                    </button>
+                  </div>
+                ))}
+
+                {/* Add resit button */}
+                <button 
+                  style={styles.addButton} 
+                  onClick={() => handleAddResit(session)}
                 >
-                  <option value="">Add Resit (Optional)</option>
-                  <option value="comp1_resit">Component 1 Resit</option>
-                  <option value="comp2_resit">Component 2 Resit</option>
-                  <option value="comp3_resit">Component 3 Resit</option>
-                </select>
+                  + Add Resit
+                </button>
               </div>
             </React.Fragment>
           ))}
@@ -387,9 +486,16 @@ const EligibilityChecker = () => {
                 const completedSession = Object.entries(
                   selectedComponents
                 ).find(([_, value]) => value.component === componentId);
-                const resitSession = Object.entries(selectedComponents).find(
-                  ([_, value]) => value.resit === `${componentId}_resit`
-                );
+                
+                // Get all resit sessions for this component
+                const resitSessions = [];
+                Object.entries(selectedComponents).forEach(([session, value]) => {
+                  value.resits.forEach(resit => {
+                    if (resit === `${componentId}_resit`) {
+                      resitSessions.push(session);
+                    }
+                  });
+                });
 
                 return (
                   <div key={comp} style={styles.summaryCard}>
@@ -400,7 +506,14 @@ const EligibilityChecker = () => {
                       Initial:{" "}
                       {completedSession ? completedSession[0] : "Not completed"}
                     </div>
-                    <div>Resit: {resitSession ? resitSession[0] : "None"}</div>
+                    <div>
+                      Resits: {resitSessions.length > 0 ? resitSessions.join(", ") : "None"} 
+                      {resitSessions.length > 0 && (
+                        <div style={{ fontSize: "12px", color: colors.neutral.graphite }}>
+                          (Total resits: {resitSessions.length})
+                        </div>
+                      )}
+                    </div>
                   </div>
                 );
               }
